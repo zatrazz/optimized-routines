@@ -1,19 +1,7 @@
 # Makefile - requires GNU make
 #
-# Copyright (c) 2018, Arm Limited.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Copyright (c) 2018-2019, Arm Limited.
+# SPDX-License-Identifier: MIT
 
 srcdir = .
 prefix = /usr
@@ -21,64 +9,48 @@ bindir = $(prefix)/bin
 libdir = $(prefix)/lib
 includedir = $(prefix)/include
 
-MATH_SRCS = $(wildcard $(srcdir)/math/*.[cS])
-MATH_BASE = $(basename $(MATH_SRCS))
-MATH_OBJS = $(MATH_BASE:$(srcdir)/%=build/%.o)
-RTEST_SRCS = $(wildcard $(srcdir)/test/rtest/*.[cS])
-RTEST_BASE = $(basename $(RTEST_SRCS))
-RTEST_OBJS = $(RTEST_BASE:$(srcdir)/%=build/%.o)
-ALL_OBJS = $(MATH_OBJS) \
-	$(RTEST_OBJS) \
-	build/test/mathtest.o \
-	build/test/mathbench.o \
-
-INCLUDES = $(wildcard $(srcdir)/math/include/*.h)
-ALL_INCLUDES = $(INCLUDES:$(srcdir)/math/%=build/%)
-
-ALL_LIBS = \
-	build/lib/libmathlib.so \
-	build/lib/libmathlib.a \
-
-ALL_TOOLS = \
-	build/bin/runtest.sh \
-	build/bin/rtest \
-	build/bin/mathtest \
-	build/bin/mathbench \
-	build/bin/mathbench_libc \
-
-TESTS = $(wildcard $(srcdir)/test/testcases/*/*.tst)
-ALL_TESTS = $(TESTS:$(srcdir)/test/testcases/%=build/bin/%)
+# Build targets
+ALL_OBJS = $(math-objs) $(string-objs)
+ALL_INCLUDES = $(math-includes) $(string-includes)
+ALL_LIBS = $(math-libs) $(string-libs)
+ALL_TOOLS = $(math-tools) $(string-tools)
+HOST_TOOLS = $(math-host-tools)
 
 # Configure these in config.mk, do not make changes in this file.
 HOST_CC = cc
+HOST_CFLAGS = -std=c99 -O2
+HOST_LDFLAGS =
+HOST_LDLIBS =
 EMULATOR =
 CFLAGS = -std=c99 -O2
 LDFLAGS =
+LDLIBS =
 CPPFLAGS =
 AR = $(CROSS_COMPILE)ar
 RANLIB = $(CROSS_COMPILE)ranlib
 INSTALL = install
 
-CFLAGS_ALL = -I$(srcdir)/math/include $(CPPFLAGS) $(CFLAGS)
+CFLAGS_ALL = -Ibuild/include $(CPPFLAGS) $(CFLAGS)
 LDFLAGS_ALL = $(LDFLAGS)
+
+all:
 
 -include config.mk
 
-all: $(ALL_LIBS) $(ALL_TOOLS) $(ALL_INCLUDES)
+include math/Dir.mk
+include string/Dir.mk
 
-DIRS = $(dir $(ALL_LIBS) $(ALL_TOOLS) $(ALL_OBJS) $(ALL_INCLUDES) $(ALL_TESTS))
+all: all-math all-string
+
+DIRS = $(dir $(ALL_LIBS) $(ALL_TOOLS) $(ALL_OBJS) $(ALL_INCLUDES))
 ALL_DIRS = $(sort $(DIRS:%/=%))
 
-$(ALL_LIBS) $(ALL_TOOLS) $(ALL_OBJS) $(ALL_OBJS:%.o=%.os) $(ALL_INCLUDES) $(ALL_TESTS): | $(ALL_DIRS)
+$(ALL_LIBS) $(ALL_TOOLS) $(ALL_OBJS) $(ALL_OBJS:%.o=%.os) $(ALL_INCLUDES): | $(ALL_DIRS)
 
 $(ALL_DIRS):
 	mkdir -p $@
 
 $(ALL_OBJS:%.o=%.os): CFLAGS_ALL += -fPIC
-
-$(RTEST_OBJS): CC = $(HOST_CC)
-
-build/test/mathtest.o: CFLAGS_ALL += -fmath-errno
 
 build/%.o: $(srcdir)/%.S
 	$(CC) $(CFLAGS_ALL) -c -o $@ $<
@@ -91,35 +63,6 @@ build/%.os: $(srcdir)/%.S
 
 build/%.os: $(srcdir)/%.c
 	$(CC) $(CFLAGS_ALL) -c -o $@ $<
-
-build/lib/libmathlib.so: $(MATH_OBJS:%.o=%.os)
-	$(CC) $(CFLAGS_ALL) $(LDFLAGS_ALL) -shared -o $@ $^
-
-build/lib/libmathlib.a: $(MATH_OBJS)
-	rm -f $@
-	$(AR) rc $@ $^
-	$(RANLIB) $@
-
-build/bin/rtest: $(RTEST_OBJS)
-	$(HOST_CC) $(CFLAGS_ALL) $(LDFLAGS_ALL) -o $@ $^ -lm -lmpfr -lmpc
-
-build/bin/mathtest: build/test/mathtest.o build/lib/libmathlib.a
-	$(CC) $(CFLAGS_ALL) $(LDFLAGS_ALL) -static -o $@ $^ -lm
-
-build/bin/mathbench: build/test/mathbench.o build/lib/libmathlib.a
-	$(CC) $(CFLAGS_ALL) $(LDFLAGS_ALL) -static -o $@ $^ -lm
-
-build/bin/mathbench_libc: build/test/mathbench.o
-	$(CC) $(CFLAGS_ALL) $(LDFLAGS_ALL) -static -o $@ $^ -lm
-
-build/include/%.h: $(srcdir)/math/include/%.h
-	cp $< $@
-
-build/bin/runtest.sh: $(srcdir)/test/runtest.sh
-	cp $< $@
-
-build/bin/%.tst: $(srcdir)/test/testcases/%.tst
-	cp $< $@
 
 clean:
 	rm -rf build
@@ -147,7 +90,6 @@ install-headers: $(ALL_INCLUDES:build/include/%=$(DESTDIR)$(includedir)/%)
 
 install: install-libs install-headers
 
-check: $(ALL_TOOLS) $(ALL_TESTS)
-	build/bin/runtest.sh $(EMULATOR) ./mathtest
+check: check-math check-string
 
 .PHONY: all clean distclean install install-tools install-libs install-headers check
